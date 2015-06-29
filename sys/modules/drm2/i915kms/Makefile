@@ -3,7 +3,7 @@
 .PATH:	${.CURDIR}/../../../dev/drm2/i915
 KMOD	= i915kms
 SRCS	= \
-	i915_debug.c \
+	i915_debugfs.c \
 	i915_dma.c \
 	i915_drv.c \
 	i915_gem.c \
@@ -53,6 +53,6 @@ SRCS	+=								\
 
 .include <bsd.kmod.mk>
 
-CWARNFLAGS.i915_debug.c=	-Wno-unused-function
+CWARNFLAGS.i915_debugfs.c=	-Wno-unused-function
 CWARNFLAGS.intel_lvds.c=	-Wno-unused
 CWARNFLAGS.intel_tv.c=		-Wno-unused
