@@ -143,9 +143,6 @@ struct intel_sdvo {
 
 	/* DDC bus used by this SDVO encoder */
 	uint8_t ddc_bus;
-
-	/* Input timings for adjusted_mode */
-	struct intel_sdvo_dtd input_dtd;
 };
 
 struct intel_sdvo_connector {
@@ -947,11 +944,15 @@ intel_sdvo_set_output_timings_from_mode(struct intel_sdvo *intel_sdvo,
 	return true;
 }
 
+/* Asks the sdvo controller for the preferred input mode given the output mode.
+ * Unfortunately we have to set up the full output mode to do that. */
 static bool
-intel_sdvo_set_input_timings_for_mode(struct intel_sdvo *intel_sdvo,
-					const struct drm_display_mode *mode,
-					struct drm_display_mode *adjusted_mode)
+intel_sdvo_get_preferred_input_mode(struct intel_sdvo *intel_sdvo,
+				    const struct drm_display_mode *mode,
+				    struct drm_display_mode *adjusted_mode)
 {
+	struct intel_sdvo_dtd input_dtd;
+
 	/* Reset the input timing to the screen. Assume always input 0. */
 	if (!intel_sdvo_set_target_input(intel_sdvo))
 		return false;
@@ -963,10 +964,10 @@ intel_sdvo_set_input_timings_for_mode(struct intel_sdvo *intel_sdvo,
 		return false;
 
 	if (!intel_sdvo_get_preferred_input_timing(intel_sdvo,
-						   &intel_sdvo->input_dtd))
+						   &input_dtd))
 		return false;
 
-	intel_sdvo_get_mode_from_dtd(adjusted_mode, &intel_sdvo->input_dtd);
+	intel_sdvo_get_mode_from_dtd(adjusted_mode, &input_dtd);
 
 	return true;
 }
@@ -987,17 +988,17 @@ static bool intel_sdvo_mode_fixup(struct drm_encoder *encoder,
 		if (!intel_sdvo_set_output_timings_from_mode(intel_sdvo, mode))
 			return false;
 
-		(void) intel_sdvo_set_input_timings_for_mode(intel_sdvo,
-							     mode,
-							     adjusted_mode);
+		(void) intel_sdvo_get_preferred_input_mode(intel_sdvo,
+							   mode,
+							   adjusted_mode);
 	} else if (intel_sdvo->is_lvds) {
 		if (!intel_sdvo_set_output_timings_from_mode(intel_sdvo,
 							     intel_sdvo->sdvo_lvds_fixed_mode))
 			return false;
 
-		(void) intel_sdvo_set_input_timings_for_mode(intel_sdvo,
-							     mode,
-							     adjusted_mode);
+		(void) intel_sdvo_get_preferred_input_mode(intel_sdvo,
+							   mode,
+							   adjusted_mode);
 	}
 
 	/* Make the CRTC code factor in the SDVO pixel multiplier.  The
