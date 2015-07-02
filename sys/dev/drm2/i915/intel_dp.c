@@ -266,6 +266,9 @@ intel_dp_mode_valid(struct drm_connector *connector,
 	if (mode->clock < 10000)
 		return MODE_CLOCK_LOW;
 
+	if (mode->flags & DRM_MODE_FLAG_DBLCLK)
+		return MODE_H_ILLEGAL;
+
 	return MODE_OK;
 }
 
@@ -689,6 +692,9 @@ intel_dp_mode_fixup(struct drm_encoder *encoder, const struct drm_display_mode *
 		intel_pch_panel_fitting(dev, DRM_MODE_SCALE_FULLSCREEN,
 					mode, adjusted_mode);
 	}
+
+	if (mode->flags & DRM_MODE_FLAG_DBLCLK)
+		return false;
 
 	DRM_DEBUG_KMS("DP link computation with max lane count %i "
 		      "max bw %02x pixel clock %iKHz\n",
