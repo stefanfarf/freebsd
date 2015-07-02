@@ -374,7 +374,6 @@ gen6_pm_rps_work_func(void *arg, int pending)
 
 	dev_priv = (drm_i915_private_t *)arg;
 	dev = dev_priv->dev;
-	new_delay = dev_priv->cur_delay;
 
 	mtx_lock(&dev_priv->rps_lock);
 	pm_iir = dev_priv->pm_iir;
@@ -383,41 +382,18 @@ gen6_pm_rps_work_func(void *arg, int pending)
 	I915_WRITE(GEN6_PMIMR, 0);
 	mtx_unlock(&dev_priv->rps_lock);
 
-	if (!pm_iir)
+	if ((pm_iir & GEN6_PM_DEFERRED_EVENTS) == 0)
 		return;
 
 	DRM_LOCK(dev);
-	if (pm_iir & GEN6_PM_RP_UP_THRESHOLD) {
-		if (dev_priv->cur_delay != dev_priv->max_delay)
-			new_delay = dev_priv->cur_delay + 1;
-		if (new_delay > dev_priv->max_delay)
-			new_delay = dev_priv->max_delay;
-	} else if (pm_iir & (GEN6_PM_RP_DOWN_THRESHOLD | GEN6_PM_RP_DOWN_TIMEOUT)) {
-		gen6_gt_force_wake_get(dev_priv);
-		if (dev_priv->cur_delay != dev_priv->min_delay)
-			new_delay = dev_priv->cur_delay - 1;
-		if (new_delay < dev_priv->min_delay) {
-			new_delay = dev_priv->min_delay;
-			I915_WRITE(GEN6_RP_INTERRUPT_LIMITS,
-				   I915_READ(GEN6_RP_INTERRUPT_LIMITS) |
-				   ((new_delay << 16) & 0x3f0000));
-		} else {
-			/* Make sure we continue to get down interrupts
-			 * until we hit the minimum frequency */
-			I915_WRITE(GEN6_RP_INTERRUPT_LIMITS,
-				   I915_READ(GEN6_RP_INTERRUPT_LIMITS) & ~0x3f0000);
-		}
-		gen6_gt_force_wake_put(dev_priv);
-	}
+
+	if (pm_iir & GEN6_PM_RP_UP_THRESHOLD)
+		new_delay = dev_priv->cur_delay + 1;
+	else
+		new_delay = dev_priv->cur_delay - 1;
 
 	gen6_set_rps(dev, new_delay);
-	dev_priv->cur_delay = new_delay;
 
-	/*
-	 * rps_lock not held here because clearing is non-destructive. There is
-	 * an *extremely* unlikely race with gen6_rps_enable() that is prevented
-	 * by holding struct_mutex for the duration of the write.
-	 */
 	DRM_UNLOCK(dev);
 }
 
