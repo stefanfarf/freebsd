@@ -929,9 +929,10 @@ static void assert_pll(struct drm_i915_private *dev_priv,
 
 /* For ILK+ */
 static void assert_pch_pll(struct drm_i915_private *dev_priv,
-			   struct intel_crtc *intel_crtc, bool state)
+			   struct intel_pch_pll *pll,
+			   struct intel_crtc *crtc,
+			   bool state)
 {
-	int reg;
 	u32 val;
 	bool cur_state;
 
@@ -940,30 +941,37 @@ static void assert_pch_pll(struct drm_i915_private *dev_priv,
 		return;
 	}
 
-	if (!intel_crtc->pch_pll) {
-		printf("asserting PCH PLL enabled with no PLL\n");
+	if (!pll) {
+		printf("asserting PCH PLL %s with no PLL\n", state_string(state));
 		return;
 	}
 
-	if (HAS_PCH_CPT(dev_priv->dev)) {
+	val = I915_READ(pll->pll_reg);
+	cur_state = !!(val & DPLL_VCO_ENABLE);
+	if (cur_state != state)
+		printf("PCH PLL state for reg %x assertion failure (expected %s, current %s), val=%08x\n",
+		    pll->pll_reg, state_string(state), state_string(cur_state), val);
+
+	/* Make sure the selected PLL is correctly attached to the transcoder */
+	if (crtc && HAS_PCH_CPT(dev_priv->dev)) {
 		u32 pch_dpll;
 
 		pch_dpll = I915_READ(PCH_DPLL_SEL);
-
-		/* Make sure the selected PLL is enabled to the transcoder */
-		KASSERT(((pch_dpll >> (4 * intel_crtc->pipe)) & 8) != 0,
-		    ("transcoder %d PLL not enabled\n", intel_crtc->pipe));
+		cur_state = pll->pll_reg == _PCH_DPLL_B;
+		if (((pch_dpll >> (4 * crtc->pipe)) & 1) != cur_state)
+			printf("PLL[%d] not attached to this transcoder %d: %08x\n",
+			    cur_state, crtc->pipe, pch_dpll);
+		else {
+			cur_state = !!(val >> (4*crtc->pipe + 3));
+			if (cur_state != state)
+				printf("PLL[%d] not %s on this transcoder %d: %08x\n",
+				    pll->pll_reg == _PCH_DPLL_B, state_string(state),
+				    crtc->pipe, val);
+		}
 	}
-
-	reg = intel_crtc->pch_pll->pll_reg;
-	val = I915_READ(reg);
-	cur_state = !!(val & DPLL_VCO_ENABLE);
-	if (cur_state != state)
-		printf("PCH PLL state assertion failure (expected %s, current %s)\n",
-		    state_string(state), state_string(cur_state));
 }
-#define assert_pch_pll_enabled(d, p) assert_pch_pll(d, p, true)
-#define assert_pch_pll_disabled(d, p) assert_pch_pll(d, p, false)
+#define assert_pch_pll_enabled(d, p, c) assert_pch_pll(d, p, c, true)
+#define assert_pch_pll_disabled(d, p, c) assert_pch_pll(d, p, c, false)
 
 static void assert_fdi_tx(struct drm_i915_private *dev_priv,
 			  enum pipe pipe, bool state)
@@ -1447,7 +1455,7 @@ static void intel_enable_pch_pll(struct intel_crtc *intel_crtc)
 	assert_pch_refclk_enabled(dev_priv);
 
 	if (pll->active++ && pll->on) {
-		assert_pch_pll_enabled(dev_priv, intel_crtc);
+		assert_pch_pll_enabled(dev_priv, pll, NULL);
 		return;
 	}
 
@@ -1486,12 +1494,12 @@ static void intel_disable_pch_pll(struct intel_crtc *intel_crtc)
 
 	if (pll->active == 0) {
 		DRM_DEBUG_KMS("pll->active == 0\n");
-		assert_pch_pll_disabled(dev_priv, intel_crtc);
+		assert_pch_pll_disabled(dev_priv, pll, NULL);
 		return;
 	}
 
 	if (--pll->active) {
-		assert_pch_pll_enabled(dev_priv, intel_crtc);
+		assert_pch_pll_enabled(dev_priv, pll, NULL);
 		return;
 	}
 
@@ -1521,7 +1529,9 @@ static void intel_enable_transcoder(struct drm_i915_private *dev_priv,
 	KASSERT(dev_priv->info->gen >= 5, ("Wrong device gen"));
 
 	/* Make sure PCH DPLL is enabled */
-	assert_pch_pll_enabled(dev_priv, to_intel_crtc(crtc));
+	assert_pch_pll_enabled(dev_priv,
+			       to_intel_crtc(crtc)->pch_pll,
+			       to_intel_crtc(crtc));
 
 	/* FDI must be feeding us bits for PCH ports */
 	assert_fdi_tx_enabled(dev_priv, pipe);
