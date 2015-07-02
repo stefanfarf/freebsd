@@ -178,8 +178,21 @@ i915_ppgtt_bind_object(struct i915_hw_ppgtt *ppgtt,
 		panic("cache mode");
 	}
 
-	i915_ppgtt_insert_pages(ppgtt, obj->gtt_space->start >> PAGE_SHIFT,
-	    obj->base.size >> PAGE_SHIFT, obj->pages, pte_flags);
+	if (obj->sg_table) {
+#ifdef FREEBSD_NOTYET
+		i915_ppgtt_insert_sg_entries(ppgtt,
+					     obj->sg_table->sgl,
+					     obj->sg_table->nents,
+					     obj->gtt_space->start >> PAGE_SHIFT,
+					     pte_flags);
+#endif
+	} else {
+		i915_ppgtt_insert_pages(ppgtt,
+					obj->gtt_space->start >> PAGE_SHIFT,
+					obj->base.size >> PAGE_SHIFT,
+					obj->pages,
+					pte_flags);
+	}
 }
 
 void i915_ppgtt_unbind_object(struct i915_hw_ppgtt *ppgtt,
@@ -302,8 +315,19 @@ i915_gem_gtt_bind_object(struct drm_i915_gem_object *obj,
 	dev_priv = dev->dev_private;
 	agp_type = cache_level_to_agp_type(dev, cache_level);
 
-	intel_gtt_insert_pages(obj->gtt_space->start >> PAGE_SHIFT,
-	    obj->base.size >> PAGE_SHIFT, obj->pages, agp_type);
+	if (obj->sg_table) {
+#ifdef FREEBSD_NOTYET
+		intel_gtt_insert_sg_entries(obj->sg_table->sgl,
+					    obj->sg_table->nents,
+					    obj->gtt_space->start >> PAGE_SHIFT,
+					    agp_type);
+#endif
+	} else {
+		intel_gtt_insert_pages(obj->gtt_space->start >> PAGE_SHIFT,
+				       obj->base.size >> PAGE_SHIFT,
+				       obj->pages,
+				       agp_type);
+	}
 
 	obj->has_global_gtt_mapping = 1;
 }

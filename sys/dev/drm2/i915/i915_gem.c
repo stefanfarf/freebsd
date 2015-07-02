@@ -77,8 +77,6 @@ static uint32_t i915_gem_get_gtt_alignment(struct drm_device *dev,
     uint32_t size, int tiling_mode);
 static int i915_gem_object_bind_to_gtt(struct drm_i915_gem_object *obj,
     unsigned alignment, bool map_and_fenceable);
-static int i915_gem_object_get_pages_gtt(struct drm_i915_gem_object *obj,
-    int flags);
 static void i915_gem_object_put_pages_gtt(struct drm_i915_gem_object *obj);
 static void i915_gem_object_put_pages_range(struct drm_i915_gem_object *obj,
     off_t start, off_t end);
@@ -212,6 +210,11 @@ i915_gem_free_object(struct drm_gem_object *gem_obj)
 	dev_priv = dev->dev_private;
 
 	CTR1(KTR_DRM, "object_destroy_tail %p", obj);
+
+#ifdef FREEBSD_NOTYET
+	if (gem_obj->import_attach)
+		drm_prime_gem_destroy(gem_obj, obj->sg_table);
+#endif
 
 	if (obj->phys_obj)
 		i915_gem_detach_phys_object(dev, obj);
@@ -1867,6 +1870,19 @@ i915_gem_mmap_ioctl(struct drm_device *dev, void *data,
 	obj = drm_gem_object_lookup(dev, file, args->handle);
 	if (obj == NULL)
 		return (-ENOENT);
+
+#if 1
+	KIB_NOTYET();
+#else
+	/* prime objects have no backing filp to GEM mmap
+	 * pages from.
+	 */
+	if (!obj->filp) {
+		error -EINVAL;
+		goto out;
+	}
+#endif
+
 	error = 0;
 	if (args->size == 0)
 		goto out;
@@ -2885,9 +2901,9 @@ failed:
 	return (-EIO);
 }
 
-static int
+int
 i915_gem_object_get_pages_gtt(struct drm_i915_gem_object *obj,
-    int flags)
+    gfp_t gfpmask)
 {
 	struct drm_device *dev;
 	vm_object_t vm_obj;
@@ -2895,8 +2911,10 @@ i915_gem_object_get_pages_gtt(struct drm_i915_gem_object *obj,
 	vm_pindex_t i, page_count;
 	int res;
 
+	if (obj->pages || obj->sg_table)
+		return 0;
+
 	dev = obj->base.dev;
-	KASSERT(obj->pages == NULL, ("Obj already has pages"));
 	page_count = OFF_TO_IDX(obj->base.size);
 	obj->pages = malloc(page_count * sizeof(vm_page_t), DRM_I915_GEM,
 	    M_WAITOK);
@@ -2950,6 +2968,9 @@ i915_gem_object_put_pages_gtt(struct drm_i915_gem_object *obj)
 {
 	vm_page_t m;
 	int page_count, i;
+
+	if (!obj->pages)
+		return;
 
 	KASSERT(obj->madv != I915_MADV_PURGED_INTERNAL, ("Purged object"));
 

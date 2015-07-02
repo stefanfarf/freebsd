@@ -377,6 +377,15 @@ extern const char *fb_mode_option;
 struct fb_info *	framebuffer_alloc(void);
 void			framebuffer_release(struct fb_info *info);
 
+typedef enum {
+	GFP_KERNEL,
+	GFP_ATOMIC,
+	__GFP_HIGHMEM,
+	__GFP_HIGH
+} gfp_t;
+
+struct dma_buf;
+
 #define KIB_NOTYET()							\
 do {									\
 	if (drm_debug && drm_notyet)					\

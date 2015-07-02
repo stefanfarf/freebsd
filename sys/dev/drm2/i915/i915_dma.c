@@ -1673,6 +1673,14 @@ struct drm_driver i915_driver_info = {
 	.gem_init_object = i915_gem_init_object,
 	.gem_free_object = i915_gem_free_object,
 	.gem_pager_ops	= &i915_gem_pager_ops,
+
+#ifdef FREEBSD_NOTYET
+	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
+	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
+	.gem_prime_export = i915_gem_prime_export,
+	.gem_prime_import = i915_gem_prime_import,
+#endif
+
 	.dumb_create	= i915_gem_dumb_create,
 	.dumb_map_offset = i915_gem_mmap_gtt,
 	.dumb_destroy	= i915_gem_dumb_destroy,

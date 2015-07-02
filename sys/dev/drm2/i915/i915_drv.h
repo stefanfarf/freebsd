@@ -936,6 +936,8 @@ struct drm_i915_gem_object {
 	/** for phy allocated objects */
 	struct drm_i915_gem_phys_object *phys_obj;
 
+	/* prime dma-buf support */
+	struct sg_table *sg_table;
 	/**
 	 * Number of crtcs where this object is currently the fb, but
 	 * will be page flipped away on the next vblank.  When it
@@ -1231,6 +1233,8 @@ struct drm_i915_gem_object *i915_gem_alloc_object(struct drm_device *dev,
     size_t size);
 uint32_t i915_gem_get_unfenced_gtt_alignment(struct drm_device *dev,
     uint32_t size, int tiling_mode);
+int i915_gem_object_get_pages_gtt(struct drm_i915_gem_object *obj,
+				  gfp_t gfpmask);
 int i915_mutex_lock_interruptible(struct drm_device *dev);
 int i915_gem_object_set_to_gtt_domain(struct drm_i915_gem_object *obj,
     bool write);
@@ -1332,6 +1336,13 @@ extern void intel_opregion_fini(struct drm_device *dev);
 extern void intel_opregion_asle_intr(struct drm_device *dev);
 extern void intel_opregion_gse_intr(struct drm_device *dev);
 extern void intel_opregion_enable_asle(struct drm_device *dev);
+
+struct drm_gem_object *i915_gem_prime_import(struct drm_device *dev,
+				struct dma_buf *dma_buf);
+
+struct dma_buf *i915_gem_prime_export(struct drm_device *dev,
+				struct drm_gem_object *gem_obj, int flags);
+
 
 /* i915_gem_gtt.c */
 int i915_gem_init_aliasing_ppgtt(struct drm_device *dev);
