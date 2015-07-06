@@ -40,6 +40,7 @@ __FBSDID("$FreeBSD$");
 
 static void i915_capture_error_state(struct drm_device *dev);
 static u32 ring_last_seqno(struct intel_ring_buffer *ring);
+void ivybridge_handle_parity_error(struct drm_device *dev);
 
 /* For display hotplug interrupt */
 static void
@@ -397,6 +398,90 @@ gen6_pm_rps_work_func(void *arg, int pending)
 	DRM_UNLOCK(dev);
 }
 
+
+/**
+ * ivybridge_parity_work - Workqueue called when a parity error interrupt
+ * occurred.
+ * @work: workqueue struct
+ *
+ * Doesn't actually do anything except notify userspace. As a consequence of
+ * this event, userspace should try to remap the bad rows since statistically
+ * it is likely the same row is more likely to go bad again.
+ */
+static void ivybridge_parity_work_func(void *context, int pending)
+{
+	drm_i915_private_t *dev_priv = context;
+	struct drm_device *dev = dev_priv->dev;
+	u32 error_status, row, bank, subbank;
+#ifdef FREEBSD_NOTYET
+	char *parity_event[5];
+#endif
+	uint32_t misccpctl;
+
+	/* We must turn off DOP level clock gating to access the L3 registers.
+	 * In order to prevent a get/put style interface, acquire struct mutex
+	 * any time we access those registers.
+	 */
+	DRM_LOCK(dev);
+
+	misccpctl = I915_READ(GEN7_MISCCPCTL);
+	I915_WRITE(GEN7_MISCCPCTL, misccpctl & ~GEN7_DOP_CLOCK_GATE_ENABLE);
+	POSTING_READ(GEN7_MISCCPCTL);
+
+	error_status = I915_READ(GEN7_L3CDERRST1);
+	row = GEN7_PARITY_ERROR_ROW(error_status);
+	bank = GEN7_PARITY_ERROR_BANK(error_status);
+	subbank = GEN7_PARITY_ERROR_SUBBANK(error_status);
+
+	I915_WRITE(GEN7_L3CDERRST1, GEN7_PARITY_ERROR_VALID |
+				    GEN7_L3CDERRST1_ENABLE);
+	POSTING_READ(GEN7_L3CDERRST1);
+
+	I915_WRITE(GEN7_MISCCPCTL, misccpctl);
+
+	mtx_lock(&dev_priv->irq_lock);
+	dev_priv->gt_irq_mask &= ~GT_GEN7_L3_PARITY_ERROR_INTERRUPT;
+	I915_WRITE(GTIMR, dev_priv->gt_irq_mask);
+	mtx_unlock(&dev_priv->irq_lock);
+
+	DRM_UNLOCK(dev);
+
+#ifdef FREEBSD_NOTYET
+	parity_event[0] = "L3_PARITY_ERROR=1";
+	parity_event[1] = kasprintf(GFP_KERNEL, "ROW=%d", row);
+	parity_event[2] = kasprintf(GFP_KERNEL, "BANK=%d", bank);
+	parity_event[3] = kasprintf(GFP_KERNEL, "SUBBANK=%d", subbank);
+	parity_event[4] = NULL;
+
+	kobject_uevent_env(&dev_priv->dev->primary->kdev.kobj,
+			   KOBJ_CHANGE, parity_event);
+#endif
+
+	DRM_DEBUG("Parity error: Row = %d, Bank = %d, Sub bank = %d.\n",
+		  row, bank, subbank);
+
+#ifdef FREEBSD_NOTYET
+	kfree(parity_event[3]);
+	kfree(parity_event[2]);
+	kfree(parity_event[1]);
+#endif
+}
+
+void ivybridge_handle_parity_error(struct drm_device *dev)
+{
+	drm_i915_private_t *dev_priv = (drm_i915_private_t *) dev->dev_private;
+
+	if (!IS_IVYBRIDGE(dev))
+		return;
+
+	mtx_lock(&dev_priv->irq_lock);
+	dev_priv->gt_irq_mask |= GT_GEN7_L3_PARITY_ERROR_INTERRUPT;
+	I915_WRITE(GTIMR, dev_priv->gt_irq_mask);
+	mtx_unlock(&dev_priv->irq_lock);
+
+	taskqueue_enqueue(dev_priv->tq, &dev_priv->parity_error_task);
+}
+
 static void snb_gt_irq_handler(struct drm_device *dev,
 			       struct drm_i915_private *dev_priv,
 			       u32 gt_iir)
@@ -416,6 +501,9 @@ static void snb_gt_irq_handler(struct drm_device *dev,
 		DRM_ERROR("GT error interrupt 0x%08x\n", gt_iir);
 		i915_handle_error(dev, false);
 	}
+
+	if (gt_iir & GT_GEN7_L3_PARITY_ERROR_INTERRUPT)
+		ivybridge_handle_parity_error(dev);
 }
 
 static void gen6_queue_rps_work(struct drm_i915_private *dev_priv,
@@ -1226,6 +1314,10 @@ ironlake_irq_preinstall(struct drm_device *dev)
 	drm_i915_private_t *dev_priv = (drm_i915_private_t *) dev->dev_private;
 
 	atomic_set(&dev_priv->irq_received, 0);
+
+	if (IS_IVYBRIDGE(dev))
+		TASK_INIT(&dev_priv->parity_error_task, 0,
+		    ivybridge_parity_work_func, dev->dev_private);
 
 	I915_WRITE(HWSTAM, 0xeffe);
 

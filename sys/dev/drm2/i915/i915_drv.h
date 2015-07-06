@@ -768,6 +768,8 @@ typedef struct drm_i915_private {
 	struct drm_property *broadcast_rgb_property;
 	struct drm_property *force_audio_property;
 
+	struct task parity_error_task;
+
 	bool hw_contexts_disabled;
 	uint32_t hw_context_size;
 } drm_i915_private_t;
