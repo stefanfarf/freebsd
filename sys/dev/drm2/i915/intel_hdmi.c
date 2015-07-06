@@ -124,11 +124,13 @@ static void g4x_write_infoframe(struct drm_encoder *encoder,
 	u32 val = I915_READ(VIDEO_DIP_CTL);
 	unsigned i, len = DIP_HEADER_SIZE + frame->len;
 
+	if (!(val & VIDEO_DIP_ENABLE))
+		printf("Writing DIP with CTL reg disabled\n");
+
 	val &= ~(VIDEO_DIP_SELECT_MASK | 0xf); /* clear DIP data offset */
 	val |= g4x_infoframe_index(frame);
 
 	val &= ~g4x_infoframe_enable(frame);
-	val |= VIDEO_DIP_ENABLE;
 
 	I915_WRITE(VIDEO_DIP_CTL, val);
 
@@ -155,13 +157,15 @@ static void ibx_write_infoframe(struct drm_encoder *encoder,
 	unsigned i, len = DIP_HEADER_SIZE + frame->len;
 	u32 val = I915_READ(reg);
 
+	if (!(val & VIDEO_DIP_ENABLE))
+		printf("Writing DIP with CTL reg disabled\n");
+
 	intel_wait_for_vblank(dev, intel_crtc->pipe);
 
 	val &= ~(VIDEO_DIP_SELECT_MASK | 0xf); /* clear DIP data offset */
 	val |= g4x_infoframe_index(frame);
 
 	val &= ~g4x_infoframe_enable(frame);
-	val |= VIDEO_DIP_ENABLE;
 
 	I915_WRITE(reg, val);
 
@@ -188,6 +192,9 @@ static void cpt_write_infoframe(struct drm_encoder *encoder,
 	unsigned i, len = DIP_HEADER_SIZE + frame->len;
 	u32 val = I915_READ(reg);
 
+	if (!(val & VIDEO_DIP_ENABLE))
+		printf("Writing DIP with CTL reg disabled\n");
+
 	intel_wait_for_vblank(dev, intel_crtc->pipe);
 
 	val &= ~(VIDEO_DIP_SELECT_MASK | 0xf); /* clear DIP data offset */
@@ -195,12 +202,8 @@ static void cpt_write_infoframe(struct drm_encoder *encoder,
 
 	/* The DIP control register spec says that we need to update the AVI
 	 * infoframe without clearing its enable bit */
-	if (frame->type == DIP_TYPE_AVI)
-		val |= VIDEO_DIP_ENABLE_AVI;
-	else
+	if (frame->type != DIP_TYPE_AVI)
 		val &= ~g4x_infoframe_enable(frame);
-
-	val |= VIDEO_DIP_ENABLE;
 
 	I915_WRITE(reg, val);
 
@@ -227,13 +230,15 @@ static void vlv_write_infoframe(struct drm_encoder *encoder,
 	unsigned i, len = DIP_HEADER_SIZE + frame->len;
 	u32 val = I915_READ(reg);
 
+	if (!(val & VIDEO_DIP_ENABLE))
+	    printf("Writing DIP with CTL reg disabled\n");
+
 	intel_wait_for_vblank(dev, intel_crtc->pipe);
 
 	val &= ~(VIDEO_DIP_SELECT_MASK | 0xf); /* clear DIP data offset */
 	val |= g4x_infoframe_index(frame);
 
 	val &= ~g4x_infoframe_enable(frame);
-	val |= VIDEO_DIP_ENABLE;
 
 	I915_WRITE(reg, val);
 
@@ -356,6 +361,8 @@ static void g4x_set_infoframes(struct drm_encoder *encoder,
 		return;
 	}
 
+	val |= VIDEO_DIP_ENABLE;
+
 	I915_WRITE(reg, val);
 
 	intel_hdmi_set_avi_infoframe(encoder, adjusted_mode);
@@ -397,6 +404,8 @@ static void ibx_set_infoframes(struct drm_encoder *encoder,
 		return;
 	}
 
+	val |= VIDEO_DIP_ENABLE;
+
 	I915_WRITE(reg, val);
 
 	intel_hdmi_set_avi_infoframe(encoder, adjusted_mode);
@@ -423,6 +432,11 @@ static void cpt_set_infoframes(struct drm_encoder *encoder,
 		return;
 	}
 
+	/* Set both together, unset both together: see the spec. */
+	val |= VIDEO_DIP_ENABLE | VIDEO_DIP_ENABLE_AVI;
+
+	I915_WRITE(reg, val);
+
 	intel_hdmi_set_avi_infoframe(encoder, adjusted_mode);
 	intel_hdmi_set_spd_infoframe(encoder);
 }
@@ -446,6 +460,10 @@ static void vlv_set_infoframes(struct drm_encoder *encoder,
 		I915_WRITE(reg, val);
 		return;
 	}
+
+	val |= VIDEO_DIP_ENABLE;
+
+	I915_WRITE(reg, val);
 
 	intel_hdmi_set_avi_infoframe(encoder, adjusted_mode);
 	intel_hdmi_set_spd_infoframe(encoder);
