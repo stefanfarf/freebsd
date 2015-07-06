@@ -375,6 +375,8 @@ extern const char *fb_mode_option;
 #define	printk		printf
 #define	KERN_DEBUG	""
 
+#define mmiowb() __compiler_membar()
+
 struct fb_info *	framebuffer_alloc(void);
 void			framebuffer_release(struct fb_info *info);
 

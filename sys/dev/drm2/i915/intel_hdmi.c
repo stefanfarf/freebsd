@@ -134,16 +134,19 @@ static void g4x_write_infoframe(struct drm_encoder *encoder,
 
 	I915_WRITE(VIDEO_DIP_CTL, val);
 
+	mmiowb();
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(VIDEO_DIP_DATA, *data);
 		data++;
 	}
+	mmiowb();
 
 	val |= g4x_infoframe_enable(frame);
 	val &= ~VIDEO_DIP_FREQ_MASK;
 	val |= VIDEO_DIP_FREQ_VSYNC;
 
 	I915_WRITE(VIDEO_DIP_CTL, val);
+	POSTING_READ(VIDEO_DIP_CTL);
 }
 
 static void ibx_write_infoframe(struct drm_encoder *encoder,
@@ -167,16 +170,19 @@ static void ibx_write_infoframe(struct drm_encoder *encoder,
 
 	I915_WRITE(reg, val);
 
+	mmiowb();
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(TVIDEO_DIP_DATA(intel_crtc->pipe), *data);
 		data++;
 	}
+	mmiowb();
 
 	val |= g4x_infoframe_enable(frame);
 	val &= ~VIDEO_DIP_FREQ_MASK;
 	val |= VIDEO_DIP_FREQ_VSYNC;
 
 	I915_WRITE(reg, val);
+	POSTING_READ(reg);
 }
 
 static void cpt_write_infoframe(struct drm_encoder *encoder,
@@ -203,16 +209,19 @@ static void cpt_write_infoframe(struct drm_encoder *encoder,
 
 	I915_WRITE(reg, val);
 
+	mmiowb();
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(TVIDEO_DIP_DATA(intel_crtc->pipe), *data);
 		data++;
 	}
+	mmiowb();
 
 	val |= g4x_infoframe_enable(frame);
 	val &= ~VIDEO_DIP_FREQ_MASK;
 	val |= VIDEO_DIP_FREQ_VSYNC;
 
 	I915_WRITE(reg, val);
+	POSTING_READ(reg);
 }
 
 static void vlv_write_infoframe(struct drm_encoder *encoder,
@@ -236,16 +245,19 @@ static void vlv_write_infoframe(struct drm_encoder *encoder,
 
 	I915_WRITE(reg, val);
 
+	mmiowb();
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(VLV_TVIDEO_DIP_DATA(intel_crtc->pipe), *data);
 		data++;
 	}
+	mmiowb();
 
 	val |= g4x_infoframe_enable(frame);
 	val &= ~VIDEO_DIP_FREQ_MASK;
 	val |= VIDEO_DIP_FREQ_VSYNC;
 
 	I915_WRITE(reg, val);
+	POSTING_READ(reg);
 }
 
 static void hsw_write_infoframe(struct drm_encoder *encoder,
@@ -266,13 +278,16 @@ static void hsw_write_infoframe(struct drm_encoder *encoder,
 	val &= ~hsw_infoframe_enable(frame);
 	I915_WRITE(ctl_reg, val);
 
+	mmiowb();
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(data_reg + i, *data);
 		data++;
 	}
+	mmiowb();
 
 	val |= hsw_infoframe_enable(frame);
 	I915_WRITE(ctl_reg, val);
+	POSTING_READ(ctl_reg);
 }
 
 static void intel_set_infoframe(struct drm_encoder *encoder,
@@ -339,6 +354,7 @@ static void g4x_set_infoframes(struct drm_encoder *encoder,
 			return;
 		val &= ~VIDEO_DIP_ENABLE;
 		I915_WRITE(reg, val);
+		POSTING_READ(reg);
 		return;
 	}
 
@@ -357,6 +373,7 @@ static void g4x_set_infoframes(struct drm_encoder *encoder,
 		if (val & VIDEO_DIP_ENABLE) {
 			val &= ~VIDEO_DIP_ENABLE;
 			I915_WRITE(reg, val);
+			POSTING_READ(reg);
 		}
 		val &= ~VIDEO_DIP_PORT_MASK;
 		val |= port;
@@ -366,6 +383,7 @@ static void g4x_set_infoframes(struct drm_encoder *encoder,
 	val &= ~VIDEO_DIP_ENABLE_VENDOR;
 
 	I915_WRITE(reg, val);
+	POSTING_READ(reg);
 
 	intel_hdmi_set_avi_infoframe(encoder, adjusted_mode);
 	intel_hdmi_set_spd_infoframe(encoder);
@@ -389,6 +407,7 @@ static void ibx_set_infoframes(struct drm_encoder *encoder,
 			return;
 		val &= ~VIDEO_DIP_ENABLE;
 		I915_WRITE(reg, val);
+		POSTING_READ(reg);
 		return;
 	}
 
@@ -410,6 +429,7 @@ static void ibx_set_infoframes(struct drm_encoder *encoder,
 		if (val & VIDEO_DIP_ENABLE) {
 			val &= ~VIDEO_DIP_ENABLE;
 			I915_WRITE(reg, val);
+			POSTING_READ(reg);
 		}
 		val &= ~VIDEO_DIP_PORT_MASK;
 		val |= port;
@@ -420,6 +440,7 @@ static void ibx_set_infoframes(struct drm_encoder *encoder,
 		 VIDEO_DIP_ENABLE_GCP);
 
 	I915_WRITE(reg, val);
+	POSTING_READ(reg);
 
 	intel_hdmi_set_avi_infoframe(encoder, adjusted_mode);
 	intel_hdmi_set_spd_infoframe(encoder);
@@ -442,6 +463,7 @@ static void cpt_set_infoframes(struct drm_encoder *encoder,
 			return;
 		val &= ~(VIDEO_DIP_ENABLE | VIDEO_DIP_ENABLE_AVI);
 		I915_WRITE(reg, val);
+		POSTING_READ(reg);
 		return;
 	}
 
@@ -451,6 +473,7 @@ static void cpt_set_infoframes(struct drm_encoder *encoder,
 		 VIDEO_DIP_ENABLE_GCP);
 
 	I915_WRITE(reg, val);
+	POSTING_READ(reg);
 
 	intel_hdmi_set_avi_infoframe(encoder, adjusted_mode);
 	intel_hdmi_set_spd_infoframe(encoder);
@@ -473,6 +496,7 @@ static void vlv_set_infoframes(struct drm_encoder *encoder,
 			return;
 		val &= ~VIDEO_DIP_ENABLE;
 		I915_WRITE(reg, val);
+		POSTING_READ(reg);
 		return;
 	}
 
@@ -481,6 +505,7 @@ static void vlv_set_infoframes(struct drm_encoder *encoder,
 		 VIDEO_DIP_ENABLE_GCP);
 
 	I915_WRITE(reg, val);
+	POSTING_READ(reg);
 
 	intel_hdmi_set_avi_infoframe(encoder, adjusted_mode);
 	intel_hdmi_set_spd_infoframe(encoder);
@@ -497,6 +522,7 @@ static void hsw_set_infoframes(struct drm_encoder *encoder,
 
 	if (!intel_hdmi->has_hdmi_sink) {
 		I915_WRITE(reg, 0);
+		POSTING_READ(reg);
 		return;
 	}
 
@@ -504,6 +530,7 @@ static void hsw_set_infoframes(struct drm_encoder *encoder,
 		 VIDEO_DIP_ENABLE_VS_HSW | VIDEO_DIP_ENABLE_GMP_HSW);
 
 	I915_WRITE(reg, val);
+	POSTING_READ(reg);
 
 	intel_hdmi_set_avi_infoframe(encoder, adjusted_mode);
 	intel_hdmi_set_spd_infoframe(encoder);
