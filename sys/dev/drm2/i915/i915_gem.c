@@ -97,7 +97,7 @@ static void i915_gem_lowmem(void *arg);
 static void i915_gem_write_fence(struct drm_device *dev, int reg,
     struct drm_i915_gem_object *obj);
 static int __wait_seqno(struct intel_ring_buffer *ring, u32 seqno,
-    bool interruptible);
+    bool interruptible, struct timespec *timeout);
 static int i915_gem_check_olr(struct intel_ring_buffer *ring, u32 seqno);
 
 MALLOC_DEFINE(DRM_I915_GEM, "i915gem", "Allocations from i915 gem");
@@ -804,7 +804,7 @@ i915_gem_ring_throttle(struct drm_device *dev, struct drm_file *file)
 	if (seqno == 0)
 		return (0);
 
-	ret = __wait_seqno(ring, seqno, true);
+	ret = __wait_seqno(ring, seqno, true, NULL);
 	if (ret == 0)
 		taskqueue_enqueue_timeout(dev_priv->tq,
 		    &dev_priv->mm.retire_task, 0);
@@ -3330,16 +3330,38 @@ i915_gem_check_olr(struct intel_ring_buffer *ring, u32 seqno)
 	return ret;
 }
 
+/**
+ * __wait_seqno - wait until execution of seqno has finished
+ * @ring: the ring expected to report seqno
+ * @seqno: duh!
+ * @interruptible: do an interruptible wait (normally yes)
+ * @timeout: in - how long to wait (NULL forever); out - how much time remaining
+ *
+ * Returns 0 if the seqno was found within the alloted time. Else returns the
+ * errno with remaining time filled in timeout argument.
+ */
 static int __wait_seqno(struct intel_ring_buffer *ring, u32 seqno,
-			bool interruptible)
+			bool interruptible, struct timespec *timeout)
 {
 	drm_i915_private_t *dev_priv = ring->dev->dev_private;
-	int ret = 0, flags;
+	sbintime_t before, now, wait_until;
+	int end, flags;
+	bool wait_forever = true;
 
 	if (i915_seqno_passed(ring->get_seqno(ring), seqno))
 		return 0;
 
 	CTR2(KTR_DRM, "request_wait_begin %s %d", ring->name, seqno);
+
+	/* Record current time in case interrupted by signal, or wedged * */
+	before = getsbinuptime();
+
+	if (timeout != NULL) {
+		/* Use an absolute wait time because it makes calling
+		 * msleep_sbt several times easier. */
+		wait_until = before + tstosbt(*timeout);
+		wait_forever = false;
+	}
 
 	mtx_lock(&dev_priv->irq_lock);
 	if (!ring->irq_get(ring)) {
@@ -3348,19 +3370,46 @@ static int __wait_seqno(struct intel_ring_buffer *ring, u32 seqno,
 	}
 
 	flags = interruptible ? PCATCH : 0;
-	while (!i915_seqno_passed(ring->get_seqno(ring), seqno)
-	    && !atomic_load_acq_int(&dev_priv->mm.wedged) &&
-	    ret == 0) {
-		ret = -msleep(ring, &dev_priv->irq_lock, flags, "915gwr", 0);
-		if (ret == -ERESTART)
-			ret = -ERESTARTSYS;
-	}
+	do {
+		if (wait_forever)
+			end = -msleep(ring, &dev_priv->irq_lock, flags,
+			    "915gwr", 0);
+		else
+			end = -msleep_sbt(ring, &dev_priv->irq_lock, flags,
+			    "915gwr", wait_until, 0, C_ABSOLUTE);
+		if (i915_seqno_passed(ring->get_seqno(ring), seqno))
+			end = 1;
+		if (atomic_load_acq_int(&dev_priv->mm.wedged))
+			end = -EAGAIN;
+		if (end == -ERESTART)
+			end = -ERESTARTSYS;
+		if (end == -EWOULDBLOCK)
+			end = -ETIME;
+	} while (end == 0);
+
+	now = getsbinuptime();
+
 	ring->irq_put(ring);
 	mtx_unlock(&dev_priv->irq_lock);
 
-	CTR3(KTR_DRM, "request_wait_end %s %d %d", ring->name, seqno, ret);
+	CTR3(KTR_DRM, "request_wait_end %s %d %d", ring->name, seqno, end);
 
-	return ret;
+	if (timeout) {
+		sbintime_t delta = now - before;
+		struct timespec sleep_time = sbttots(delta);
+		timespecsub(timeout, &sleep_time);
+	}
+
+	switch (end) {
+	case -EAGAIN: /* Wedged */
+	case -ERESTARTSYS: /* Signal */
+	case -ETIME: /* Timeout */
+		return end;
+	default: /* Completed */
+		if (end < 0)
+			printf("__wait_seqno: end < 0\n"); /* We're not aware of other errors */
+		return 0;
+	}
 }
 
 int
@@ -3382,9 +3431,7 @@ i915_wait_request(struct intel_ring_buffer *ring, uint32_t seqno)
 	if (ret)
 		return ret;
 
-	ret = __wait_seqno(ring, seqno, dev_priv->mm.interruptible);
-	if (atomic_load_acq_int(&dev_priv->mm.wedged))
-		ret = -EAGAIN;
+	ret = __wait_seqno(ring, seqno, dev_priv->mm.interruptible, NULL);
 
 	return (ret);
 }

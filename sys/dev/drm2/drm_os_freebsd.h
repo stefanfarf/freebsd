@@ -152,6 +152,7 @@ typedef void			irqreturn_t;
 /* kib@ used ENXIO here -- dumbbell@ */
 #define	EREMOTEIO	EIO
 #define	ERESTARTSYS	512 /* Same value as Linux. */
+#define	ETIME	62 /* Same value as Linux. */
 
 #define	KTR_DRM		KTR_DEV
 #define	KTR_DRM_REG	KTR_SPARE3
