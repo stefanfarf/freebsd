@@ -3129,7 +3129,7 @@ i915_gem_object_wait_rendering(struct drm_i915_gem_object *obj)
 	    obj->ring != NULL ? obj->ring->name : "none", obj->gtt_offset,
 	    obj->active, obj->last_rendering_seqno);
 	if (obj->active) {
-		ret = i915_wait_request(obj->ring, obj->last_rendering_seqno);
+		ret = i915_wait_seqno(obj->ring, obj->last_rendering_seqno);
 		if (ret != 0)
 			return (ret);
 		i915_gem_retire_requests_ring(obj->ring);
@@ -3341,7 +3341,7 @@ i915_ring_idle(struct intel_ring_buffer *ring)
 			return ret;
 	}
 
-	return (i915_wait_request(ring, i915_gem_next_request_seqno(ring)));
+	return (i915_wait_seqno(ring, i915_gem_next_request_seqno(ring)));
 }
 
 int
@@ -3497,7 +3497,7 @@ static int __wait_seqno(struct intel_ring_buffer *ring, u32 seqno,
 }
 
 int
-i915_wait_request(struct intel_ring_buffer *ring, uint32_t seqno)
+i915_wait_seqno(struct intel_ring_buffer *ring, uint32_t seqno)
 {
 	drm_i915_private_t *dev_priv;
 	int ret;
@@ -3988,8 +3988,7 @@ i915_gem_object_flush_fence(struct drm_i915_gem_object *obj)
 	}
 
 	if (obj->last_fenced_seqno) {
-		ret = i915_wait_request(obj->ring,
-					obj->last_fenced_seqno);
+		ret = i915_wait_seqno(obj->ring, obj->last_fenced_seqno);
 		if (ret)
 			return ret;
 
