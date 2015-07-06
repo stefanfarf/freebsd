@@ -1195,6 +1195,8 @@ int i915_gem_get_tiling(struct drm_device *dev, void *data,
 			struct drm_file *file_priv);
 int i915_gem_get_aperture_ioctl(struct drm_device *dev, void *data,
 				struct drm_file *file_priv);
+int i915_gem_wait_ioctl(struct drm_device *dev, void *data,
+			struct drm_file *file_priv);
 void i915_gem_load(struct drm_device *dev);
 void i915_gem_unload(struct drm_device *dev);
 int i915_gem_init_object(struct drm_gem_object *obj);

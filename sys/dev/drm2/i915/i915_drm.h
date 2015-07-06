@@ -214,6 +214,7 @@ typedef struct _drm_i915_sarea {
 #define DRM_I915_GEM_EXECBUFFER2	0x29
 #define DRM_I915_GET_SPRITE_COLORKEY 0x2a
 #define DRM_I915_SET_SPRITE_COLORKEY 0x2b
+#define DRM_I915_GEM_WAIT	0x2c
 #define DRM_I915_GEM_CONTEXT_CREATE	0x2d
 #define DRM_I915_GEM_CONTEXT_DESTROY	0x2e
 
@@ -259,6 +260,7 @@ typedef struct _drm_i915_sarea {
 #define DRM_IOCTL_I915_OVERLAY_ATTRS	DRM_IOWR(DRM_COMMAND_BASE + DRM_I915_OVERLAY_ATTRS, struct drm_intel_overlay_attrs)
 #define DRM_IOCTL_I915_SET_SPRITE_COLORKEY DRM_IOWR(DRM_COMMAND_BASE + DRM_I915_SET_SPRITE_COLORKEY, struct drm_intel_sprite_colorkey)
 #define DRM_IOCTL_I915_GET_SPRITE_COLORKEY DRM_IOWR(DRM_COMMAND_BASE + DRM_I915_SET_SPRITE_COLORKEY, struct drm_intel_sprite_colorkey)
+#define DRM_IOCTL_I915_GEM_WAIT		DRM_IOWR(DRM_COMMAND_BASE + DRM_I915_GEM_WAIT, struct drm_i915_gem_wait)
 #define DRM_IOCTL_I915_GEM_CONTEXT_CREATE	DRM_IOWR (DRM_COMMAND_BASE + DRM_I915_GEM_CONTEXT_CREATE, struct drm_i915_gem_context_create)
 #define DRM_IOCTL_I915_GEM_CONTEXT_DESTROY	DRM_IOW (DRM_COMMAND_BASE + DRM_I915_GEM_CONTEXT_DESTROY, struct drm_i915_gem_context_destroy)
 
@@ -966,6 +968,14 @@ struct drm_intel_sprite_colorkey {
 	uint32_t channel_mask;
 	uint32_t max_value;
 	uint32_t flags;
+};
+
+struct drm_i915_gem_wait {
+	/** Handle of BO we shall wait on */
+	uint32_t bo_handle;
+	uint32_t flags;
+	/** Number of nanoseconds to wait, Returns time remaining. */
+	uint64_t timeout_ns;
 };
 
 struct drm_i915_gem_context_create {
