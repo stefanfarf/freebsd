@@ -577,6 +577,8 @@ typedef struct drm_i915_private {
 		/** PPGTT used for aliasing the PPGTT with the GTT */
 		struct i915_hw_ppgtt *aliasing_ppgtt;
 
+		u32 *l3_remap_info;
+
 		/**
 		 * List of objects currently involved in rendering from the
 		 * ringbuffer.
@@ -1260,6 +1262,7 @@ int i915_gem_object_put_fence(struct drm_i915_gem_object *obj);
 int i915_gem_idle(struct drm_device *dev);
 int i915_gem_init(struct drm_device *dev);
 int i915_gem_init_hw(struct drm_device *dev);
+void i915_gem_l3_remap(struct drm_device *dev);
 void i915_gem_init_swizzling(struct drm_device *dev);
 void i915_gem_init_ppgtt(struct drm_device *dev);
 void i915_gem_cleanup_ringbuffer(struct drm_device *dev);
