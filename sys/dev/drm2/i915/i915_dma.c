@@ -1265,8 +1265,58 @@ intel_teardown_mchbar(struct drm_device *dev)
 	}
 }
 
-static int
-i915_load_modeset_init(struct drm_device *dev)
+#ifdef FREEBSD_NOTYET
+/* true = enable decode, false = disable decoder */
+static unsigned int i915_vga_set_decode(void *cookie, bool state)
+{
+	struct drm_device *dev = cookie;
+
+	intel_modeset_vga_set_state(dev, state);
+	if (state)
+		return VGA_RSRC_LEGACY_IO | VGA_RSRC_LEGACY_MEM |
+		       VGA_RSRC_NORMAL_IO | VGA_RSRC_NORMAL_MEM;
+	else
+		return VGA_RSRC_NORMAL_IO | VGA_RSRC_NORMAL_MEM;
+}
+
+static void i915_switcheroo_set_state(struct pci_dev *pdev, enum vga_switcheroo_state state)
+{
+	struct drm_device *dev = pci_get_drvdata(pdev);
+	pm_message_t pmm = { .event = PM_EVENT_SUSPEND };
+	if (state == VGA_SWITCHEROO_ON) {
+		pr_info("switched on\n");
+		dev->switch_power_state = DRM_SWITCH_POWER_CHANGING;
+		/* i915 resume handler doesn't set to D0 */
+		pci_set_power_state(dev->pdev, PCI_D0);
+		i915_resume(dev);
+		dev->switch_power_state = DRM_SWITCH_POWER_ON;
+	} else {
+		pr_err("switched off\n");
+		dev->switch_power_state = DRM_SWITCH_POWER_CHANGING;
+		i915_suspend(dev, pmm);
+		dev->switch_power_state = DRM_SWITCH_POWER_OFF;
+	}
+}
+
+static bool i915_switcheroo_can_switch(struct pci_dev *pdev)
+{
+	struct drm_device *dev = pci_get_drvdata(pdev);
+	bool can_switch;
+
+	spin_lock(&dev->count_lock);
+	can_switch = (dev->open_count == 0);
+	spin_unlock(&dev->count_lock);
+	return can_switch;
+}
+
+static const struct vga_switcheroo_client_ops i915_switcheroo_ops = {
+	.set_gpu_state = i915_switcheroo_set_state,
+	.reprobe = NULL,
+	.can_switch = i915_switcheroo_can_switch,
+};
+#endif
+
+static int i915_load_modeset_init(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	int ret;
@@ -1276,7 +1326,22 @@ i915_load_modeset_init(struct drm_device *dev)
 		DRM_INFO("failed to find VBIOS tables\n");
 
 #if 0
+	/* If we have > 1 VGA cards, then we need to arbitrate access
+	 * to the common VGA resources.
+	 *
+	 * If we are a secondary display controller (!PCI_DISPLAY_CLASS_VGA),
+	 * then we do not take part in VGA arbitration and the
+	 * vga_client_register() fails with -ENODEV.
+	 */
+	ret = vga_client_register(dev->pdev, dev, NULL, i915_vga_set_decode);
+	if (ret && ret != -ENODEV)
+		goto out;
+
 	intel_register_dsm_handler();
+
+	ret = vga_switcheroo_register_client(dev->pdev, &i915_switcheroo_ops);
+	if (ret)
+		goto cleanup_vga_client;
 #endif
 
 	/* Initialise stolen first so that we may reserve preallocated
@@ -1289,7 +1354,7 @@ i915_load_modeset_init(struct drm_device *dev)
 	intel_modeset_init(dev);
 
 	ret = i915_gem_init(dev);
-	if (ret != 0)
+	if (ret)
 		goto cleanup_gem_stolen;
 
 	intel_modeset_gem_init(dev);
@@ -1298,19 +1363,23 @@ i915_load_modeset_init(struct drm_device *dev)
 	if (ret)
 		goto cleanup_gem;
 
+	/* Always safe in the mode setting case. */
+	/* FIXME: do pre/post-mode set stuff in core KMS code */
 	dev->vblank_disable_allowed = 1;
 
 	ret = intel_fbdev_init(dev);
 	if (ret)
-		goto cleanup_gem;
+		goto cleanup_irq;
 
 	drm_kms_helper_poll_init(dev);
 
 	/* We're off and running w/KMS */
 	dev_priv->mm.suspended = 0;
 
-	return (0);
+	return 0;
 
+cleanup_irq:
+	drm_irq_uninstall(dev);
 cleanup_gem:
 	DRM_LOCK(dev);
 	i915_gem_cleanup_ringbuffer(dev);
@@ -1319,7 +1388,13 @@ cleanup_gem:
 cleanup_gem_stolen:
 	i915_gem_cleanup_stolen(dev);
 cleanup_vga_switcheroo:
-	return (ret);
+#if 0
+	vga_switcheroo_unregister_client(dev->pdev);
+cleanup_vga_client:
+	vga_client_register(dev->pdev, NULL, NULL, NULL);
+out:
+#endif
+	return ret;
 }
 
 int i915_master_create(struct drm_device *dev, struct drm_master *master)
