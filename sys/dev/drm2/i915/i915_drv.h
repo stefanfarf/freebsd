@@ -572,6 +572,8 @@ typedef struct drm_i915_private {
 		unsigned long gtt_mappable_end;
 		unsigned long gtt_end;
 
+		int gtt_mtrr;
+
 		/** PPGTT used for aliasing the PPGTT with the GTT */
 		struct i915_hw_ppgtt *aliasing_ppgtt;
 
