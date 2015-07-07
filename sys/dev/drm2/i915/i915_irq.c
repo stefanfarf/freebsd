@@ -40,7 +40,6 @@ __FBSDID("$FreeBSD$");
 
 static void i915_capture_error_state(struct drm_device *dev);
 static u32 ring_last_seqno(struct intel_ring_buffer *ring);
-void ivybridge_handle_parity_error(struct drm_device *dev);
 
 /* For display hotplug interrupt */
 static void
@@ -467,7 +466,7 @@ static void ivybridge_parity_work_func(void *context, int pending)
 #endif
 }
 
-void ivybridge_handle_parity_error(struct drm_device *dev)
+static void ivybridge_handle_parity_error(struct drm_device *dev)
 {
 	drm_i915_private_t *dev_priv = (drm_i915_private_t *) dev->dev_private;
 
