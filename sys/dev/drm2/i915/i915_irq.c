@@ -1314,10 +1314,6 @@ ironlake_irq_preinstall(struct drm_device *dev)
 
 	atomic_set(&dev_priv->irq_received, 0);
 
-	if (IS_IVYBRIDGE(dev))
-		TASK_INIT(&dev_priv->parity_error_task, 0,
-		    ivybridge_parity_work_func, dev->dev_private);
-
 	I915_WRITE(HWSTAM, 0xeffe);
 
 	/* XXX hotplug from PCH */
@@ -2231,6 +2227,8 @@ void intel_irq_init(struct drm_device *dev)
 	TASK_INIT(&dev_priv->error_task, 0, i915_error_work_func,
 	    dev->dev_private);
 	TASK_INIT(&dev_priv->rps_task, 0, gen6_pm_rps_work_func,
+	    dev->dev_private);
+	TASK_INIT(&dev_priv->parity_error_task, 0, ivybridge_parity_work_func,
 	    dev->dev_private);
 
 	dev->driver->get_vblank_counter = i915_get_vblank_counter;
