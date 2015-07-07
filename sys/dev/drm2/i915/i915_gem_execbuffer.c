@@ -1041,7 +1041,7 @@ i915_gem_execbuffer_retire_commands(struct drm_device *dev,
 		i915_gem_next_request_seqno(ring);
 		free(request, DRM_I915_GEM);
 	} else if (i915_gem_sync_exec_requests) {
-		i915_wait_request(ring, request->seqno);
+		i915_wait_seqno(ring, request->seqno);
 		i915_gem_retire_requests(dev);
 	}
 }
