@@ -944,6 +944,9 @@ struct drm_i915_gem_object {
 
 	/* prime dma-buf support */
 	struct sg_table *sg_table;
+	void *dma_buf_vmapping;
+	int vmapping_count;
+
 	/**
 	 * Number of crtcs where this object is currently the fb, but
 	 * will be page flipped away on the next vblank.  When it
