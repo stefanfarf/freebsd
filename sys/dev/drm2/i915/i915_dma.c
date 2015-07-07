@@ -531,9 +531,6 @@ static int i915_dispatch_batchbuffer(struct drm_device * dev,
 	int nbox = batch->num_cliprects;
 	int i, count, ret;
 
-	if (drm_core_check_feature(dev, DRIVER_MODESET))
-		return -ENODEV;
-
 	if ((batch->start | batch->used) & 0x7) {
 		DRM_ERROR("alignment\n");
 		return -EINVAL;
@@ -573,6 +570,15 @@ static int i915_dispatch_batchbuffer(struct drm_device * dev,
 			OUT_RING(0);
 		}
 		ADVANCE_LP_RING();
+	}
+
+
+	if (IS_G4X(dev) || IS_GEN5(dev)) {
+		if (BEGIN_LP_RING(2) == 0) {
+			OUT_RING(MI_FLUSH | MI_NO_WRITE_FLUSH | MI_INVALIDATE_ISP);
+			OUT_RING(MI_NOOP);
+			ADVANCE_LP_RING();
+		}
 	}
 
 	i915_emit_breadcrumb(dev);
@@ -669,6 +675,9 @@ int i915_batchbuffer(struct drm_device *dev, void *data,
 	struct drm_clip_rect *cliprects;
 	size_t cliplen;
 	int ret;
+
+	if (drm_core_check_feature(dev, DRIVER_MODESET))
+		return -ENODEV;
 
 	if (!dev_priv->dri1.allow_batchbuffer) {
 		DRM_ERROR("Batchbuffer ioctl disabled\n");
