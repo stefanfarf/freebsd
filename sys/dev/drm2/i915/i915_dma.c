@@ -1118,6 +1118,153 @@ static int i915_set_status_page(struct drm_device *dev, void *data,
 	return 0;
 }
 
+static int i915_get_bridge_dev(struct drm_device *dev)
+{
+	struct drm_i915_private *dev_priv = dev->dev_private;
+
+	dev_priv->bridge_dev = intel_gtt_get_bridge_device();
+	if (!dev_priv->bridge_dev) {
+		DRM_ERROR("bridge device not found\n");
+		return -1;
+	}
+	return 0;
+}
+
+#define MCHBAR_I915 0x44
+#define MCHBAR_I965 0x48
+#define MCHBAR_SIZE (4*4096)
+
+#define DEVEN_REG 0x54
+#define   DEVEN_MCHBAR_EN (1 << 28)
+
+/* Allocate space for the MCH regs if needed, return nonzero on error */
+static int
+intel_alloc_mchbar_resource(struct drm_device *dev)
+{
+	drm_i915_private_t *dev_priv;
+	device_t vga;
+	int reg;
+	u32 temp_lo, temp_hi;
+	u64 mchbar_addr, temp;
+
+	dev_priv = dev->dev_private;
+	reg = INTEL_INFO(dev)->gen >= 4 ? MCHBAR_I965 : MCHBAR_I915;
+
+	if (INTEL_INFO(dev)->gen >= 4)
+		temp_hi = pci_read_config(dev_priv->bridge_dev, reg + 4, 4);
+	else
+		temp_hi = 0;
+	temp_lo = pci_read_config(dev_priv->bridge_dev, reg, 4);
+	mchbar_addr = ((u64)temp_hi << 32) | temp_lo;
+
+	/* If ACPI doesn't have it, assume we need to allocate it ourselves */
+#ifdef XXX_CONFIG_PNP
+	if (mchbar_addr &&
+	    pnp_range_reserved(mchbar_addr, mchbar_addr + MCHBAR_SIZE))
+		return 0;
+#endif
+
+	/* Get some space for it */
+	vga = device_get_parent(dev->dev);
+	dev_priv->mch_res_rid = 0x100;
+	dev_priv->mch_res = BUS_ALLOC_RESOURCE(device_get_parent(vga),
+	    dev->dev, SYS_RES_MEMORY, &dev_priv->mch_res_rid, 0, ~0UL,
+	    MCHBAR_SIZE, RF_ACTIVE | RF_SHAREABLE);
+	if (dev_priv->mch_res == NULL) {
+		DRM_ERROR("failed mchbar resource alloc\n");
+		return (-ENOMEM);
+	}
+
+	if (INTEL_INFO(dev)->gen >= 4) {
+		temp = rman_get_start(dev_priv->mch_res);
+		temp >>= 32;
+		pci_write_config(dev_priv->bridge_dev, reg + 4, temp, 4);
+	}
+	pci_write_config(dev_priv->bridge_dev, reg,
+	    rman_get_start(dev_priv->mch_res) & UINT32_MAX, 4);
+	return 0;
+}
+
+/* Setup MCHBAR if possible, return true if we should disable it again */
+static void
+intel_setup_mchbar(struct drm_device *dev)
+{
+	drm_i915_private_t *dev_priv;
+	int mchbar_reg;
+	u32 temp;
+	bool enabled;
+
+	dev_priv = dev->dev_private;
+	mchbar_reg = INTEL_INFO(dev)->gen >= 4 ? MCHBAR_I965 : MCHBAR_I915;
+
+	dev_priv->mchbar_need_disable = false;
+
+	if (IS_I915G(dev) || IS_I915GM(dev)) {
+		temp = pci_read_config(dev_priv->bridge_dev, DEVEN_REG, 4);
+		enabled = (temp & DEVEN_MCHBAR_EN) != 0;
+	} else {
+		temp = pci_read_config(dev_priv->bridge_dev, mchbar_reg, 4);
+		enabled = temp & 1;
+	}
+
+	/* If it's already enabled, don't have to do anything */
+	if (enabled) {
+		DRM_DEBUG("mchbar already enabled\n");
+		return;
+	}
+
+	if (intel_alloc_mchbar_resource(dev))
+		return;
+
+	dev_priv->mchbar_need_disable = true;
+
+	/* Space is allocated or reserved, so enable it. */
+	if (IS_I915G(dev) || IS_I915GM(dev)) {
+		pci_write_config(dev_priv->bridge_dev, DEVEN_REG,
+		    temp | DEVEN_MCHBAR_EN, 4);
+	} else {
+		temp = pci_read_config(dev_priv->bridge_dev, mchbar_reg, 4);
+		pci_write_config(dev_priv->bridge_dev, mchbar_reg, temp | 1, 4);
+	}
+}
+
+static void
+intel_teardown_mchbar(struct drm_device *dev)
+{
+	drm_i915_private_t *dev_priv;
+	device_t vga;
+	int mchbar_reg;
+	u32 temp;
+
+	dev_priv = dev->dev_private;
+	mchbar_reg = INTEL_INFO(dev)->gen >= 4 ? MCHBAR_I965 : MCHBAR_I915;
+
+	if (dev_priv->mchbar_need_disable) {
+		if (IS_I915G(dev) || IS_I915GM(dev)) {
+			temp = pci_read_config(dev_priv->bridge_dev,
+			    DEVEN_REG, 4);
+			temp &= ~DEVEN_MCHBAR_EN;
+			pci_write_config(dev_priv->bridge_dev, DEVEN_REG,
+			    temp, 4);
+		} else {
+			temp = pci_read_config(dev_priv->bridge_dev,
+			    mchbar_reg, 4);
+			temp &= ~1;
+			pci_write_config(dev_priv->bridge_dev, mchbar_reg,
+			    temp, 4);
+		}
+	}
+
+	if (dev_priv->mch_res != NULL) {
+		vga = device_get_parent(dev->dev);
+		BUS_DEACTIVATE_RESOURCE(device_get_parent(vga), dev->dev,
+		    SYS_RES_MEMORY, dev_priv->mch_res_rid, dev_priv->mch_res);
+		BUS_RELEASE_RESOURCE(device_get_parent(vga), dev->dev,
+		    SYS_RES_MEMORY, dev_priv->mch_res_rid, dev_priv->mch_res);
+		dev_priv->mch_res = NULL;
+	}
+}
+
 static int
 i915_load_modeset_init(struct drm_device *dev)
 {
@@ -1198,155 +1345,6 @@ void i915_master_destroy(struct drm_device *dev, struct drm_master *master)
 	free(master_priv, DRM_MEM_DMA);
 
 	master->driver_priv = NULL;
-}
-
-static int
-i915_get_bridge_dev(struct drm_device *dev)
-{
-	struct drm_i915_private *dev_priv;
-
-	dev_priv = dev->dev_private;
-
-	dev_priv->bridge_dev = intel_gtt_get_bridge_device();
-	if (dev_priv->bridge_dev == NULL) {
-		DRM_ERROR("bridge device not found\n");
-		return (-1);
-	}
-	return (0);
-}
-
-#define MCHBAR_I915 0x44
-#define MCHBAR_I965 0x48
-#define MCHBAR_SIZE (4*4096)
-
-#define DEVEN_REG 0x54
-#define   DEVEN_MCHBAR_EN (1 << 28)
-
-/* Allocate space for the MCH regs if needed, return nonzero on error */
-static int
-intel_alloc_mchbar_resource(struct drm_device *dev)
-{
-	drm_i915_private_t *dev_priv;
-	device_t vga;
-	int reg;
-	u32 temp_lo, temp_hi;
-	u64 mchbar_addr, temp;
-
-	dev_priv = dev->dev_private;
-	reg = INTEL_INFO(dev)->gen >= 4 ? MCHBAR_I965 : MCHBAR_I915;
-
-	if (INTEL_INFO(dev)->gen >= 4)
-		temp_hi = pci_read_config(dev_priv->bridge_dev, reg + 4, 4);
-	else
-		temp_hi = 0;
-	temp_lo = pci_read_config(dev_priv->bridge_dev, reg, 4);
-	mchbar_addr = ((u64)temp_hi << 32) | temp_lo;
-
-	/* If ACPI doesn't have it, assume we need to allocate it ourselves */
-#ifdef XXX_CONFIG_PNP
-	if (mchbar_addr &&
-	    pnp_range_reserved(mchbar_addr, mchbar_addr + MCHBAR_SIZE))
-		return 0;
-#endif
-
-	/* Get some space for it */
-	vga = device_get_parent(dev->dev);
-	dev_priv->mch_res_rid = 0x100;
-	dev_priv->mch_res = BUS_ALLOC_RESOURCE(device_get_parent(vga),
-	    dev->dev, SYS_RES_MEMORY, &dev_priv->mch_res_rid, 0, ~0UL,
-	    MCHBAR_SIZE, RF_ACTIVE | RF_SHAREABLE);
-	if (dev_priv->mch_res == NULL) {
-		DRM_ERROR("failed mchbar resource alloc\n");
-		return (-ENOMEM);
-	}
-
-	if (INTEL_INFO(dev)->gen >= 4) {
-		temp = rman_get_start(dev_priv->mch_res);
-		temp >>= 32;
-		pci_write_config(dev_priv->bridge_dev, reg + 4, temp, 4);
-	}
-	pci_write_config(dev_priv->bridge_dev, reg,
-	    rman_get_start(dev_priv->mch_res) & UINT32_MAX, 4);
-	return (0);
-}
-
-static void
-intel_setup_mchbar(struct drm_device *dev)
-{
-	drm_i915_private_t *dev_priv;
-	int mchbar_reg;
-	u32 temp;
-	bool enabled;
-
-	dev_priv = dev->dev_private;
-	mchbar_reg = INTEL_INFO(dev)->gen >= 4 ? MCHBAR_I965 : MCHBAR_I915;
-
-	dev_priv->mchbar_need_disable = false;
-
-	if (IS_I915G(dev) || IS_I915GM(dev)) {
-		temp = pci_read_config(dev_priv->bridge_dev, DEVEN_REG, 4);
-		enabled = (temp & DEVEN_MCHBAR_EN) != 0;
-	} else {
-		temp = pci_read_config(dev_priv->bridge_dev, mchbar_reg, 4);
-		enabled = temp & 1;
-	}
-
-	/* If it's already enabled, don't have to do anything */
-	if (enabled) {
-		DRM_DEBUG("mchbar already enabled\n");
-		return;
-	}
-
-	if (intel_alloc_mchbar_resource(dev))
-		return;
-
-	dev_priv->mchbar_need_disable = true;
-
-	/* Space is allocated or reserved, so enable it. */
-	if (IS_I915G(dev) || IS_I915GM(dev)) {
-		pci_write_config(dev_priv->bridge_dev, DEVEN_REG,
-		    temp | DEVEN_MCHBAR_EN, 4);
-	} else {
-		temp = pci_read_config(dev_priv->bridge_dev, mchbar_reg, 4);
-		pci_write_config(dev_priv->bridge_dev, mchbar_reg, temp | 1, 4);
-	}
-}
-
-static void
-intel_teardown_mchbar(struct drm_device *dev)
-{
-	drm_i915_private_t *dev_priv;
-	device_t vga;
-	int mchbar_reg;
-	u32 temp;
-
-	dev_priv = dev->dev_private;
-	mchbar_reg = INTEL_INFO(dev)->gen >= 4 ? MCHBAR_I965 : MCHBAR_I915;
-
-	if (dev_priv->mchbar_need_disable) {
-		if (IS_I915G(dev) || IS_I915GM(dev)) {
-			temp = pci_read_config(dev_priv->bridge_dev,
-			    DEVEN_REG, 4);
-			temp &= ~DEVEN_MCHBAR_EN;
-			pci_write_config(dev_priv->bridge_dev, DEVEN_REG,
-			    temp, 4);
-		} else {
-			temp = pci_read_config(dev_priv->bridge_dev,
-			    mchbar_reg, 4);
-			temp &= ~1;
-			pci_write_config(dev_priv->bridge_dev, mchbar_reg,
-			    temp, 4);
-		}
-	}
-
-	if (dev_priv->mch_res != NULL) {
-		vga = device_get_parent(dev->dev);
-		BUS_DEACTIVATE_RESOURCE(device_get_parent(vga), dev->dev,
-		    SYS_RES_MEMORY, dev_priv->mch_res_rid, dev_priv->mch_res);
-		BUS_RELEASE_RESOURCE(device_get_parent(vga), dev->dev,
-		    SYS_RES_MEMORY, dev_priv->mch_res_rid, dev_priv->mch_res);
-		dev_priv->mch_res = NULL;
-	}
 }
 
 int
