@@ -315,7 +315,7 @@ static int i915_dma_init(struct drm_device *dev, void *data,
  * instruction detected will be given a size of zero, which is a
  * signal to abort the rest of the buffer.
  */
-static int do_validate_cmd(int cmd)
+static int validate_cmd(int cmd)
 {
 	switch (((cmd >> 29) & 0x7)) {
 	case 0x0:
@@ -371,15 +371,6 @@ static int do_validate_cmd(int cmd)
 	}
 
 	return 0;
-}
-
-static int validate_cmd(int cmd)
-{
-	int ret = do_validate_cmd(cmd);
-
-/*	printk("validate_cmd( %x ): %d\n", cmd, ret); */
-
-	return ret;
 }
 
 static int i915_emit_cmds(struct drm_device *dev, int __user *buffer,
@@ -1422,8 +1413,18 @@ void i915_master_destroy(struct drm_device *dev, struct drm_master *master)
 	master->driver_priv = NULL;
 }
 
-int
-i915_driver_load(struct drm_device *dev, unsigned long flags)
+/**
+ * i915_driver_load - setup chip and create an initial config
+ * @dev: DRM device
+ * @flags: startup flags
+ *
+ * The driver load routine has to do several things:
+ *   - drive output discovery via intel_modeset_init()
+ *   - initialize the memory manager
+ *   - allocate initial config memory
+ *   - setup the DRM framebuffer with the allocated memory
+ */
+int i915_driver_load(struct drm_device *dev, unsigned long flags)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	const struct intel_device_info *info;
@@ -1457,12 +1458,13 @@ i915_driver_load(struct drm_device *dev, unsigned long flags)
 		free(dev_priv, DRM_MEM_DRIVER);
 		return (-EIO);
 	}
-	dev_priv->mm.gtt = intel_gtt_get();
 
 	/* Add register map (needed for suspend/resume) */
 	mmio_bar = IS_GEN2(dev) ? 1 : 0;
 	base = drm_get_resource_start(dev, mmio_bar);
 	size = drm_get_resource_len(dev, mmio_bar);
+
+	dev_priv->mm.gtt = intel_gtt_get();
 
 	ret = drm_addmap(dev, base, size, _DRM_REGISTERS,
 	    _DRM_KERNEL | _DRM_DRIVER, &dev_priv->mmio_map);
@@ -1472,6 +1474,19 @@ i915_driver_load(struct drm_device *dev, unsigned long flags)
 		return (ret);
 	}
 
+	/* The i915 workqueue is primarily used for batched retirement of
+	 * requests (and thus managing bo) once the task has been completed
+	 * by the GPU. i915_gem_retire_requests() is called directly when we
+	 * need high-priority retirement, such as waiting for an explicit
+	 * bo.
+	 *
+	 * It is also used for periodic low-priority events, such as
+	 * idle-timers and recording error state.
+	 *
+	 * All tasks on the workqueue are expected to acquire the dev mutex
+	 * so there is no point in running more than one instance of the
+	 * workqueue at any time: max_active = 1 and NON_REENTRANT.
+	 */
 	dev_priv->tq = taskqueue_create("915", M_WAITOK,
 	    taskqueue_thread_enqueue, &dev_priv->tq);
 	taskqueue_start_threads(&dev_priv->tq, 1, PWAIT, "i915 taskq");
@@ -1483,13 +1498,25 @@ i915_driver_load(struct drm_device *dev, unsigned long flags)
 
 	intel_irq_init(dev);
 
+	/* Try to make sure MCHBAR is enabled before poking at it */
 	intel_setup_mchbar(dev);
 	intel_setup_gmbus(dev);
 	intel_opregion_setup(dev);
 
+	/* Make sure the bios did its job and set up vital registers */
 	intel_setup_bios(dev);
 
 	i915_gem_load(dev);
+
+	/* Init HWS */
+	if (!I915_NEED_GFX_HWS(dev)) {
+		ret = i915_init_phys_hws(dev);
+		if (ret != 0) {
+			drm_rmmap(dev, dev_priv->mmio_map);
+			free(dev_priv, DRM_MEM_DRIVER);
+			return ret;
+		}
+	}
 
 	/* On the 945G/GM, the chipset reports the MSI capability on the
 	 * integrated graphics even though the support isn't actually there
@@ -1504,16 +1531,6 @@ i915_driver_load(struct drm_device *dev, unsigned long flags)
 	 */
 	if (!IS_I945G(dev) && !IS_I945GM(dev))
 		drm_pci_enable_msi(dev);
-
-	/* Init HWS */
-	if (!I915_NEED_GFX_HWS(dev)) {
-		ret = i915_init_phys_hws(dev);
-		if (ret != 0) {
-			drm_rmmap(dev, dev_priv->mmio_map);
-			free(dev_priv, DRM_MEM_DRIVER);
-			return ret;
-		}
-	}
 
 	mtx_init(&dev_priv->irq_lock, "userirq", NULL, MTX_DEF);
 
@@ -1541,6 +1558,7 @@ i915_driver_load(struct drm_device *dev, unsigned long flags)
 		}
 	}
 
+	/* Must be done after probing outputs */
 	intel_opregion_init(dev);
 
 	callout_init(&dev_priv->hangcheck_timer, 1);
@@ -1558,8 +1576,7 @@ out_gem_unload:
 	return (ret);
 }
 
-int
-i915_driver_unload(struct drm_device *dev)
+int i915_driver_unload(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	int ret;
@@ -1578,6 +1595,11 @@ i915_driver_unload(struct drm_device *dev)
 	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
 		intel_fbdev_fini(dev);
 		intel_modeset_cleanup(dev);
+
+#ifdef FREEBSD_NOTYET
+		vga_switcheroo_unregister_client(dev->pdev);
+		vga_client_register(dev->pdev, NULL, NULL, NULL);
+#endif
 	}
 
 	/* Free error state after interrupts are fully disabled. */
@@ -1632,8 +1654,7 @@ i915_driver_unload(struct drm_device *dev)
 	return (0);
 }
 
-int
-i915_driver_open(struct drm_device *dev, struct drm_file *file_priv)
+int i915_driver_open(struct drm_device *dev, struct drm_file *file_priv)
 {
 	struct drm_i915_file_private *i915_file_priv;
 
@@ -1649,8 +1670,19 @@ i915_driver_open(struct drm_device *dev, struct drm_file *file_priv)
 	return (0);
 }
 
-void
-i915_driver_lastclose(struct drm_device * dev)
+/**
+ * i915_driver_lastclose - clean up after all DRM clients have exited
+ * @dev: DRM device
+ *
+ * Take care of cleaning up after all DRM clients have exited.  In the
+ * mode setting case, we want to restore the kernel's initial mode (just
+ * in case the last client left us in a bad state).
+ *
+ * Additionally, in the non-mode setting case, we'll tear down the GTT
+ * and DMA structures, since the kernel won't be using them, and clea
+ * up any GEM state.
+ */
+void i915_driver_lastclose(struct drm_device * dev)
 {
 	drm_i915_private_t *dev_priv = dev->dev_private;
 
@@ -1663,7 +1695,9 @@ i915_driver_lastclose(struct drm_device * dev)
 #endif
 		return;
 	}
+
 	i915_gem_lastclose(dev);
+
 	i915_dma_cleanup(dev);
 }
 
