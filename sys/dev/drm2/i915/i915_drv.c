@@ -42,6 +42,9 @@ __FBSDID("$FreeBSD$");
 
 #include "fb_if.h"
 
+static int i915_resume(device_t kdev);
+static int i915_suspend(device_t kdev);
+
 /* drv_PCI_IDs comes from drm_pciids.h, generated from drm_pciids.txt. */
 static drm_pci_id_list_t i915_pciidlist[] = {
 	i915_PCI_IDS
@@ -285,130 +288,6 @@ static const struct intel_gfx_device_id {
 };
 
 static int i915_enable_unsupported;
-
-static int i915_drm_freeze(struct drm_device *dev)
-{
-	struct drm_i915_private *dev_priv;
-	int error;
-
-	dev_priv = dev->dev_private;
-	drm_kms_helper_poll_disable(dev);
-
-#if 0
-	pci_save_state(dev->pdev);
-#endif
-
-	/* If KMS is active, we do the leavevt stuff here */
-	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
-		error = i915_gem_idle(dev);
-		if (error) {
-			device_printf(dev->dev,
-			    "GEM idle failed, resume might fail\n");
-			return (error);
-		}
-		drm_irq_uninstall(dev);
-	}
-
-	i915_save_state(dev);
-
-	intel_opregion_fini(dev);
-
-	/* Modeset on resume, not lid events */
-	dev_priv->modeset_on_lid = 0;
-
-	return 0;
-}
-
-static int
-i915_suspend(device_t kdev)
-{
-	struct drm_device *dev;
-	int error;
-
-	dev = device_get_softc(kdev);
-	if (dev == NULL || dev->dev_private == NULL) {
-		DRM_ERROR("DRM not initialized, aborting suspend.\n");
-		return ENODEV;
-	}
-
-	DRM_DEBUG_KMS("starting suspend\n");
-	error = i915_drm_freeze(dev);
-	if (error)
-		return (-error);
-
-	error = bus_generic_suspend(kdev);
-	DRM_DEBUG_KMS("finished suspend %d\n", error);
-	return (error);
-}
-
-static int i915_drm_thaw(struct drm_device *dev)
-{
-	struct drm_i915_private *dev_priv = dev->dev_private;
-	int error = 0;
-
-	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
-		DRM_LOCK(dev);
-		i915_gem_restore_gtt_mappings(dev);
-		DRM_UNLOCK(dev);
-	}
-
-	i915_restore_state(dev);
-	intel_opregion_setup(dev);
-
-	/* KMS EnterVT equivalent */
-	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
-		if (HAS_PCH_SPLIT(dev))
-			ironlake_init_pch_refclk(dev);
-
-		DRM_LOCK(dev);
-		dev_priv->mm.suspended = 0;
-
-		error = i915_gem_init_hw(dev);
-		DRM_UNLOCK(dev);
-
-		intel_modeset_init_hw(dev);
-		sx_xlock(&dev->mode_config.mutex);
-		drm_mode_config_reset(dev);
-		sx_xunlock(&dev->mode_config.mutex);
-		drm_irq_install(dev);
-
-		sx_xlock(&dev->mode_config.mutex);
-		/* Resume the modeset for every activated CRTC */
-		drm_helper_resume_force_mode(dev);
-		sx_xunlock(&dev->mode_config.mutex);
-	}
-
-	intel_opregion_init(dev);
-
-	dev_priv->modeset_on_lid = 0;
-
-	return error;
-}
-
-static int
-i915_resume(device_t kdev)
-{
-	struct drm_device *dev;
-	int ret;
-
-	dev = device_get_softc(kdev);
-	DRM_DEBUG_KMS("starting resume\n");
-#if 0
-	if (pci_enable_device(dev->pdev))
-		return -EIO;
-
-	pci_set_master(dev->pdev);
-#endif
-
-	ret = i915_drm_thaw(dev);
-	if (ret != 0)
-		return (-ret);
-
-	drm_kms_helper_poll_enable(dev);
-	ret = bus_generic_resume(kdev);
-	DRM_DEBUG_KMS("finished resume %d\n", ret);
-	return (ret);
-}
 
 static int
 i915_probe(device_t kdev)
@@ -739,6 +618,130 @@ void vlv_force_wake_put(struct drm_i915_private *dev_priv)
 	I915_WRITE_NOTRACE(FORCEWAKE_VLV, 0xffff0000);
 	/* FIXME: confirm VLV behavior with Punit folks */
 	POSTING_READ(FORCEWAKE_VLV);
+}
+
+static int i915_drm_freeze(struct drm_device *dev)
+{
+	struct drm_i915_private *dev_priv;
+	int error;
+
+	dev_priv = dev->dev_private;
+	drm_kms_helper_poll_disable(dev);
+
+#if 0
+	pci_save_state(dev->pdev);
+#endif
+
+	/* If KMS is active, we do the leavevt stuff here */
+	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
+		error = i915_gem_idle(dev);
+		if (error) {
+			device_printf(dev->dev,
+			    "GEM idle failed, resume might fail\n");
+			return (error);
+		}
+		drm_irq_uninstall(dev);
+	}
+
+	i915_save_state(dev);
+
+	intel_opregion_fini(dev);
+
+	/* Modeset on resume, not lid events */
+	dev_priv->modeset_on_lid = 0;
+
+	return 0;
+}
+
+static int
+i915_suspend(device_t kdev)
+{
+	struct drm_device *dev;
+	int error;
+
+	dev = device_get_softc(kdev);
+	if (dev == NULL || dev->dev_private == NULL) {
+		DRM_ERROR("DRM not initialized, aborting suspend.\n");
+		return ENODEV;
+	}
+
+	DRM_DEBUG_KMS("starting suspend\n");
+	error = i915_drm_freeze(dev);
+	if (error)
+		return (-error);
+
+	error = bus_generic_suspend(kdev);
+	DRM_DEBUG_KMS("finished suspend %d\n", error);
+	return (error);
+}
+
+static int i915_drm_thaw(struct drm_device *dev)
+{
+	struct drm_i915_private *dev_priv = dev->dev_private;
+	int error = 0;
+
+	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
+		DRM_LOCK(dev);
+		i915_gem_restore_gtt_mappings(dev);
+		DRM_UNLOCK(dev);
+	}
+
+	i915_restore_state(dev);
+	intel_opregion_setup(dev);
+
+	/* KMS EnterVT equivalent */
+	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
+		if (HAS_PCH_SPLIT(dev))
+			ironlake_init_pch_refclk(dev);
+
+		DRM_LOCK(dev);
+		dev_priv->mm.suspended = 0;
+
+		error = i915_gem_init_hw(dev);
+		DRM_UNLOCK(dev);
+
+		intel_modeset_init_hw(dev);
+		sx_xlock(&dev->mode_config.mutex);
+		drm_mode_config_reset(dev);
+		sx_xunlock(&dev->mode_config.mutex);
+		drm_irq_install(dev);
+
+		sx_xlock(&dev->mode_config.mutex);
+		/* Resume the modeset for every activated CRTC */
+		drm_helper_resume_force_mode(dev);
+		sx_xunlock(&dev->mode_config.mutex);
+	}
+
+	intel_opregion_init(dev);
+
+	dev_priv->modeset_on_lid = 0;
+
+	return error;
+}
+
+static int
+i915_resume(device_t kdev)
+{
+	struct drm_device *dev;
+	int ret;
+
+	dev = device_get_softc(kdev);
+	DRM_DEBUG_KMS("starting resume\n");
+#if 0
+	if (pci_enable_device(dev->pdev))
+		return -EIO;
+
+	pci_set_master(dev->pdev);
+#endif
+
+	ret = i915_drm_thaw(dev);
+	if (ret != 0)
+		return (-ret);
+
+	drm_kms_helper_poll_enable(dev);
+	ret = bus_generic_resume(kdev);
+	DRM_DEBUG_KMS("finished resume %d\n", ret);
+	return (ret);
 }
 
 static int
