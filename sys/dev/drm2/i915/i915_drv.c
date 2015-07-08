@@ -230,33 +230,33 @@ static const struct intel_gfx_device_id {
 	int device;
 	const struct intel_device_info *info;
 } pciidlist[] = {		/* aka */
-	INTEL_VGA_DEVICE(0x3577, &intel_i830_info),
-	INTEL_VGA_DEVICE(0x2562, &intel_845g_info),
-	INTEL_VGA_DEVICE(0x3582, &intel_i85x_info),
+	INTEL_VGA_DEVICE(0x3577, &intel_i830_info),		/* I830_M */
+	INTEL_VGA_DEVICE(0x2562, &intel_845g_info),		/* 845_G */
+	INTEL_VGA_DEVICE(0x3582, &intel_i85x_info),		/* I855_GM */
 	INTEL_VGA_DEVICE(0x358e, &intel_i85x_info),
-	INTEL_VGA_DEVICE(0x2572, &intel_i865g_info),
-	INTEL_VGA_DEVICE(0x2582, &intel_i915g_info),
-	INTEL_VGA_DEVICE(0x258a, &intel_i915g_info),
-	INTEL_VGA_DEVICE(0x2592, &intel_i915gm_info),
-	INTEL_VGA_DEVICE(0x2772, &intel_i945g_info),
-	INTEL_VGA_DEVICE(0x27a2, &intel_i945gm_info),
-	INTEL_VGA_DEVICE(0x27ae, &intel_i945gm_info),
-	INTEL_VGA_DEVICE(0x2972, &intel_i965g_info),
-	INTEL_VGA_DEVICE(0x2982, &intel_i965g_info),
-	INTEL_VGA_DEVICE(0x2992, &intel_i965g_info),
-	INTEL_VGA_DEVICE(0x29a2, &intel_i965g_info),
-	INTEL_VGA_DEVICE(0x29b2, &intel_g33_info),
-	INTEL_VGA_DEVICE(0x29c2, &intel_g33_info),
-	INTEL_VGA_DEVICE(0x29d2, &intel_g33_info),
-	INTEL_VGA_DEVICE(0x2a02, &intel_i965gm_info),
-	INTEL_VGA_DEVICE(0x2a12, &intel_i965gm_info),
-	INTEL_VGA_DEVICE(0x2a42, &intel_gm45_info),
-	INTEL_VGA_DEVICE(0x2e02, &intel_g45_info),
-	INTEL_VGA_DEVICE(0x2e12, &intel_g45_info),
-	INTEL_VGA_DEVICE(0x2e22, &intel_g45_info),
-	INTEL_VGA_DEVICE(0x2e32, &intel_g45_info),
-	INTEL_VGA_DEVICE(0x2e42, &intel_g45_info),
-	INTEL_VGA_DEVICE(0x2e92, &intel_g45_info),
+	INTEL_VGA_DEVICE(0x2572, &intel_i865g_info),		/* I865_G */
+	INTEL_VGA_DEVICE(0x2582, &intel_i915g_info),		/* I915_G */
+	INTEL_VGA_DEVICE(0x258a, &intel_i915g_info),		/* E7221_G */
+	INTEL_VGA_DEVICE(0x2592, &intel_i915gm_info),		/* I915_GM */
+	INTEL_VGA_DEVICE(0x2772, &intel_i945g_info),		/* I945_G */
+	INTEL_VGA_DEVICE(0x27a2, &intel_i945gm_info),		/* I945_GM */
+	INTEL_VGA_DEVICE(0x27ae, &intel_i945gm_info),		/* I945_GME */
+	INTEL_VGA_DEVICE(0x2972, &intel_i965g_info),		/* I946_GZ */
+	INTEL_VGA_DEVICE(0x2982, &intel_i965g_info),		/* G35_G */
+	INTEL_VGA_DEVICE(0x2992, &intel_i965g_info),		/* I965_Q */
+	INTEL_VGA_DEVICE(0x29a2, &intel_i965g_info),		/* I965_G */
+	INTEL_VGA_DEVICE(0x29b2, &intel_g33_info),		/* Q35_G */
+	INTEL_VGA_DEVICE(0x29c2, &intel_g33_info),		/* G33_G */
+	INTEL_VGA_DEVICE(0x29d2, &intel_g33_info),		/* Q33_G */
+	INTEL_VGA_DEVICE(0x2a02, &intel_i965gm_info),		/* I965_GM */
+	INTEL_VGA_DEVICE(0x2a12, &intel_i965gm_info),		/* I965_GME */
+	INTEL_VGA_DEVICE(0x2a42, &intel_gm45_info),		/* GM45_G */
+	INTEL_VGA_DEVICE(0x2e02, &intel_g45_info),		/* IGD_E_G */
+	INTEL_VGA_DEVICE(0x2e12, &intel_g45_info),		/* Q45_G */
+	INTEL_VGA_DEVICE(0x2e22, &intel_g45_info),		/* G45_G */
+	INTEL_VGA_DEVICE(0x2e32, &intel_g45_info),		/* G41_G */
+	INTEL_VGA_DEVICE(0x2e42, &intel_g45_info),		/* B43_G */
+	INTEL_VGA_DEVICE(0x2e92, &intel_g45_info),		/* B43_G.1 */
 	INTEL_VGA_DEVICE(0xa001, &intel_pineview_info),
 	INTEL_VGA_DEVICE(0xa011, &intel_pineview_info),
 	INTEL_VGA_DEVICE(0x0042, &intel_ironlake_d_info),
@@ -550,6 +550,13 @@ void intel_detect_pch(struct drm_device *dev)
 	uint32_t id;
 
 	dev_priv = dev->dev_private;
+
+	/*
+	 * The reason to probe ISA bridge instead of Dev31:Fun0 is to
+	 * make graphics device passthrough work easy for VMM, that only
+	 * need to expose ISA bridge to let driver know the real hardware
+	 * underneath. This is a requirement from virtualization team.
+	 */
 	pch = pci_find_class(PCIC_BRIDGE, PCIS_BRIDGE_ISA);
 	if (pch != NULL && pci_get_vendor(pch) == PCI_VENDOR_INTEL) {
 		id = pci_get_device(pch) & INTEL_PCH_DEVICE_ID_MASK;
@@ -627,6 +634,12 @@ __gen6_gt_force_wake_mt_get(struct drm_i915_private *dev_priv)
 		DELAY(10);
 }
 
+/*
+ * Generally this is called implicitly by the register read function. However,
+ * if some sequence requires the GT to not power down then this function should
+ * be called at the beginning of the sequence followed by a call to
+ * gen6_gt_force_wake_put() at the end of the sequence.
+ */
 void
 gen6_gt_force_wake_get(struct drm_i915_private *dev_priv)
 {
@@ -667,6 +680,9 @@ __gen6_gt_force_wake_mt_put(struct drm_i915_private *dev_priv)
 	gen6_gt_check_fifodbg(dev_priv);
 }
 
+/*
+ * see gen6_gt_force_wake_get()
+ */
 void
 gen6_gt_force_wake_put(struct drm_i915_private *dev_priv)
 {
@@ -894,6 +910,21 @@ intel_gpu_reset(struct drm_device *dev)
 	return ret;
 }
 
+/**
+ * i915_reset - reset chip after a hang
+ * @dev: drm device to reset
+ *
+ * Reset the chip.  Useful if a hang is detected. Returns zero on successful
+ * reset or otherwise an error code.
+ *
+ * Procedure is fairly simple:
+ *   - reset the chip using the reset reg
+ *   - re-init context state
+ *   - re-init hardware status page
+ *   - re-init ring buffer
+ *   - re-init interrupt state
+ *   - re-init display
+ */
 int i915_reset(struct drm_device *dev)
 {
 	drm_i915_private_t *dev_priv = dev->dev_private;
@@ -922,6 +953,20 @@ int i915_reset(struct drm_device *dev)
 		return (ret);
 	}
 
+	/* Ok, now get things going again... */
+
+	/*
+	 * Everything depends on having the GTT running, so we need to start
+	 * there.  Fortunately we don't need to do this unless we reset the
+	 * chip at a PCI level.
+	 *
+	 * Next we need to restore the context, but we don't use those
+	 * yet either...
+	 *
+	 * Ring buffer needs to be re-initialized in the KMS case, or if X
+	 * was running at the time of the reset (i.e. we weren't VT
+	 * switched away).
+	 */
 	if (drm_core_check_feature(dev, DRIVER_MODESET) ||
 	    !dev_priv->mm.suspended) {
 		struct intel_ring_buffer *ring;
