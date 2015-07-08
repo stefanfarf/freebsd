@@ -479,8 +479,7 @@ bool i915_semaphore_is_enabled(struct drm_device *dev)
 	return 1;
 }
 
-void
-__gen6_gt_force_wake_get(struct drm_i915_private *dev_priv)
+void __gen6_gt_force_wake_get(struct drm_i915_private *dev_priv)
 {
 	int count;
 
@@ -496,8 +495,7 @@ __gen6_gt_force_wake_get(struct drm_i915_private *dev_priv)
 		DELAY(10);
 }
 
-void
-__gen6_gt_force_wake_mt_get(struct drm_i915_private *dev_priv)
+void __gen6_gt_force_wake_mt_get(struct drm_i915_private *dev_priv)
 {
 	int count;
 
@@ -519,8 +517,7 @@ __gen6_gt_force_wake_mt_get(struct drm_i915_private *dev_priv)
  * be called at the beginning of the sequence followed by a call to
  * gen6_gt_force_wake_put() at the end of the sequence.
  */
-void
-gen6_gt_force_wake_get(struct drm_i915_private *dev_priv)
+void gen6_gt_force_wake_get(struct drm_i915_private *dev_priv)
 {
 
 	mtx_lock(&dev_priv->gt_lock);
@@ -529,8 +526,7 @@ gen6_gt_force_wake_get(struct drm_i915_private *dev_priv)
 	mtx_unlock(&dev_priv->gt_lock);
 }
 
-static void
-gen6_gt_check_fifodbg(struct drm_i915_private *dev_priv)
+static void gen6_gt_check_fifodbg(struct drm_i915_private *dev_priv)
 {
 	u32 gtfifodbg;
 
@@ -541,8 +537,7 @@ gen6_gt_check_fifodbg(struct drm_i915_private *dev_priv)
 	}
 }
 
-void
-__gen6_gt_force_wake_put(struct drm_i915_private *dev_priv)
+void __gen6_gt_force_wake_put(struct drm_i915_private *dev_priv)
 {
 
 	I915_WRITE_NOTRACE(FORCEWAKE, 0);
@@ -550,8 +545,7 @@ __gen6_gt_force_wake_put(struct drm_i915_private *dev_priv)
 	gen6_gt_check_fifodbg(dev_priv);
 }
 
-void
-__gen6_gt_force_wake_mt_put(struct drm_i915_private *dev_priv)
+void __gen6_gt_force_wake_mt_put(struct drm_i915_private *dev_priv)
 {
 
 	I915_WRITE_NOTRACE(FORCEWAKE_MT, _MASKED_BIT_DISABLE(1));
@@ -562,8 +556,7 @@ __gen6_gt_force_wake_mt_put(struct drm_i915_private *dev_priv)
 /*
  * see gen6_gt_force_wake_get()
  */
-void
-gen6_gt_force_wake_put(struct drm_i915_private *dev_priv)
+void gen6_gt_force_wake_put(struct drm_i915_private *dev_priv)
 {
 
 	mtx_lock(&dev_priv->gt_lock);
@@ -572,8 +565,7 @@ gen6_gt_force_wake_put(struct drm_i915_private *dev_priv)
 	mtx_unlock(&dev_priv->gt_lock);
 }
 
-int
-__gen6_gt_wait_for_fifo(struct drm_i915_private *dev_priv)
+int __gen6_gt_wait_for_fifo(struct drm_i915_private *dev_priv)
 {
 	int ret = 0;
 
@@ -744,8 +736,7 @@ i915_resume(device_t kdev)
 	return (ret);
 }
 
-static int
-i8xx_do_reset(struct drm_device *dev)
+static int i8xx_do_reset(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	int onems;
@@ -780,8 +771,7 @@ i8xx_do_reset(struct drm_device *dev)
 	return 0;
 }
 
-static int
-i965_reset_complete(struct drm_device *dev)
+static int i965_reset_complete(struct drm_device *dev)
 {
 	u8 gdrst;
 
@@ -789,8 +779,7 @@ i965_reset_complete(struct drm_device *dev)
 	return (gdrst & GRDOM_RESET_ENABLE) == 0;
 }
 
-static int
-i965_do_reset(struct drm_device *dev)
+static int i965_do_reset(struct drm_device *dev)
 {
 	int ret;
 	u8 gdrst;
@@ -816,8 +805,7 @@ i965_do_reset(struct drm_device *dev)
  	return wait_for(i965_reset_complete(dev), 500);
 }
 
-static int
-ironlake_do_reset(struct drm_device *dev)
+static int ironlake_do_reset(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv;
 	u32 gdrst;
@@ -838,8 +826,7 @@ ironlake_do_reset(struct drm_device *dev)
  	return wait_for(I915_READ(MCHBAR_MIRROR_BASE + ILK_GDSR) & 0x1, 500);
 }
 
-static int
-gen6_do_reset(struct drm_device *dev)
+static int gen6_do_reset(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv;
 	int ret;
